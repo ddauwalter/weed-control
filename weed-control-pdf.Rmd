@@ -1,0 +1,135 @@
+---
+title: "Washington Lake, Weed Control (Dave Kyle)"
+author: "Hodge / Dauwalter"
+date: "11/15/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Weed Removal - The Question
+
+Non-native game fishes predate upon Sockeye Salmon *O. nerka* in Lake Sammamish(?), WA.  Removal of aquatic vegetation is an action that would presumably reduce habitat of non-native gamefish predators, thus reducing their populations and predation impact on Sockeye Salmon.  This study was designed to answer the question **"Did vegetation removal have an effect on abundance of nonnative game fishes?"**.  Vegetation removal treatments were performed at 11 and 22 foot depths at each of 3 sites (Samm Landing, Idylwood Park, and Weowna Park).  Fishes were enumerated during scuba surveys, at each treatment site and a paired control site, twice over one summer (survey 1 and 2).  A generalized linear mixed model (Poisson link) was used to evaluate the effect of the vegetation treatment on sport fish abundance.
+
+# Resources
+Ben Bolker draft chapter on GLMMs: [link](https://ms.mcmaster.ca/~bolker/classes/s4c03/notes/GLMM_Bolker_draft5.pdf)
+
+The data (from D. Kyle, Trout Unlimited) look like this:
+```{r echo=FALSE}
+DK<-read.csv("DKWA.csv",header=T)
+attach(DK)
+DK<-DK[order(Site, Depth, SurvNum, Type),]
+library(knitr)
+kable(as.data.frame(DK[,c(5,10,3,9,1,8,12:13,15)]), caption = "Weed removal data.")
+kable(as.data.frame(DK[,c(16:27)]), caption = "Fish data. Link to Table 1 by rowID (column 1).")
+
+```
+
+# Scale and center the data
+Create scaled and centered data for continuous variables to alleviate model-fit problems ([link](https://rstudio-pubs-static.s3.amazonaws.com/33653_57fc7b8e5d484c909b615d8633c01d51.html))
+```{r}
+DK.s<-DK
+DK.s[,names(DK) %in% c("JulDaySurv","VegRemoved","Visibility")]<-
+  scale(DK[,names(DK) %in% c("JulDaySurv","VegRemoved","Visibility")])
+```
+
+## Correlations Among Variables
+Evaluate correlations among continuous variables that may cause multicollinearity problems in the model(s).
+```{r echo=FALSE, warnings=FALSE, results = 'asis'}
+DK<-read.csv("DKWA.csv",header=T)
+attach(DK)
+corr<-cor(DK[sapply(DK,is.numeric)])
+corr.tbl<-as.data.frame(ifelse(abs(corr[c(1:8),c(1:8)])>0.6,round(corr[c(1:8),c(1:8)],3),"*"))
+kable(corr.tbl, caption = "Pearson correlations (|r|>0.6) among continuous variables associated with transects.")
+```
+Screen from global model JulDayTrt and Temp because of high correlation with JulDaySurv. TimeElapsed is correlated with SurveyNum (in binomial sense) and so it is excluded also.
+
+## Explore Random Effect Structure
+Explore model fit with different variations of random effects based on design while also considering model complexity given sample size (n=24).  Models with no random effect (gm1), site only random effect (gm1.site.reff), site and survey (1 & 2) non-nested random effects (gm2.site.surv.reff), and survey nested within site random effects (gm3.site.surv_reff). It also would fit these models with REML = FALSE, so AIC comparisons may be suspect.
+```{r}
+library(lme4)
+gm1<-glm(ALL~JulDaySurv+Type*DepthCat+Visibility, data=DK.s, family=poisson, na.action="na.fail")
+gm1.site.reff<-glmer(ALL~JulDaySurv+Type*DepthCat+Visibility+(1|Site),
+                     data=DK.s, family=poisson, na.action="na.fail")
+gm2.site.surv.reff<-glmer(ALL~JulDaySurv+Type*DepthCat+Visibility+(1|Site)+(1|SurvCat),
+                     data=DK.s, family=poisson, na.action="na.fail")
+gm3.site.surv_reff<-glmer(ALL~JulDaySurv+Type*DepthCat+Visibility+(1|Site/SurvCat),
+                     data=DK.s, family=poisson, na.action="na.fail")  #Is singular
+```
+Note that (1|Site/SurvCat) in gm3 results in singularity, i.e., each site and survey combination needs its own intercept (n=6).
+
+Compare models using AIC
+```{r}
+AIC(gm1, gm1.site.reff, gm2.site.surv.reff,gm3.site.surv_reff)#AIC,  suggests random effect needed
+```
+gm3 has lowest AIC but is singular.  Fall back to non-nested random effects of site and survey, as that model has the next lowest AIC.
+
+## Global Model
+Fit a global model with Julian Day, Visibility, and the two variables of interest Treatment Type (Control, Impact) and Depth Category (11 v. 22 ft).  Site and Survey (1 or 2) are maintained as random effects (non-nested).
+
+```{r}
+Global.mod<-glmer(ALL~JulDaySurv+Type*DepthCat+Visibility+(1|Site)+(1|SurvCat),
+                data=DK.s,family=poisson,nAGQ=0, na.action="na.fail")
+summary(Global.mod)
+```
+
+## Model Selection
+
+Run model selection using all combinations of covariates in global model with some constraints.  Constraints include Type is in every model (random effects are included in all models by default).  
+
+```{r warning=FALSE, message=FALSE}
+library(MuMIn)
+mod.sel<-dredge(Global.mod,rank="AICc", REML = FALSE, fixed=c("Type"))
+```
+
+Print top models (AICc <4) and model-averaged parameter estimates.
+
+```{r}
+(top.mods<-subset(mod.sel,subset = delta<4))
+```
+Two models are plausible: global model, and a global model but without Julian Day of Survey term.
+
+Compute model-averaged parameter estimates (with and withouth shrinkage):
+```{r}
+avgm<-model.avg(top.mods)
+summary(avgm)
+```
+Drop Julian Day of Survey because Survey Category random effect captures Julian Day effect, and the parameter estimate is imprecise.  Drop Visibility because the parameter estimate is non-sensical (less fish as visibility increases).
+
+## Reduced Model
+
+Fit reduced model based on results of model selection.
+```{r}
+r.mod<-glmer(ALL~Type*DepthCat+(1|Site)+(1|SurvCat), 
+             data=DK.s, family=poisson,na.action="na.fail")  
+summary(r.mod)
+```
+
+### Results
+The significant interaction between Treatment Type (Control, Treatment) and Depth (11 v. 22 ft) suggests that the effect of Treatment Type differs depending on whether vegetation was removed at 11 v. 22 ft.  At 11 ft., the Depth term and Depth:Treatment Type interaction terms get set to zero. Thus, the parameter estimate of the Treatment Type main effect at 11 ft. is estimated to be -1.56, suggesting that application of the vegetation removal treatment results in a $e^{-1.56} = 0.21$, or a 79% (1 - 0.21 = .79) decrease in abundance of game fish.  At 22 ft., the Depth, Treatment Type, and Treatment Type:Depth interaction estimates suggest that vegetation removal results in a $e^{(-1.56 + -1.67 + 0.39)} = 0.06$, or a 94% (1 - 0.06 = 0.94) decrease in abundance.
+
+## Effects Plot with Partial Residuals
+```{r}
+library(visreg)
+visreg(r.mod, "Type", by="DepthCat",type='conditional')
+```
+This shows the common effect of vegetation removal on abundance of game fish at the two depths.
+
+## A Look at the Random Effects
+First step, pull random effects from r.mod
+```{r}
+randoms <- ranef(r.mod)
+```
+### Catepiller plots of random effects
+```{r}
+library(lattice)
+randoms <- ranef(r.mod)
+dotplot(randoms)$Site
+```
+The random effects show that abundance was generally highest at Samm Landing and lowest at Idylwood Park.
+
+```{r}
+dotplot(randoms)$SurvCat
+```
+The random effect estimates for survey 1 versus 2 show abundance of game fish was generally higher during the 2nd survey.

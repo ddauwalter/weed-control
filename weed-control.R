@@ -9,6 +9,6 @@ summary(Global.mod)
 
 
 mod.sel<-dredge(Global.mod,rank="AICc",REML = FALSE,fixed=c("Type","(1|Site/SurvCat/DepthCat)"),subset=!("Type" && "VegRemoved"))
-top.mods<-subset(mod.sel,subset = delta<4)
-avgm<-model.avg(top.mods)
+(top.mods<-subset(mod.sel,subset = delta<4))
+(avgm<-model.avg(top.mods))
 summary(avgm)
