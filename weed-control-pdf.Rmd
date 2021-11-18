@@ -1,20 +1,35 @@
 ---
-title: "Washington Lake, Weed Control (Dave Kyle)"
+title: "Sammamish(?) Lake, Weed Control (Dave Kyle)"
 author: "Hodge / Dauwalter"
-date: "11/15/2021"
+date: "11/18/2021"
 output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-## Weed Removal - The Question
+# Weed Removal
+## The Question
 
-Non-native game fishes predate upon Sockeye Salmon *O. nerka* in Lake Sammamish(?), WA.  Removal of aquatic vegetation is an action that would presumably reduce habitat of non-native gamefish predators, thus reducing their populations and predation impact on Sockeye Salmon.  This study was designed to answer the question **"Did vegetation removal have an effect on abundance of nonnative game fishes?"**.  Vegetation removal treatments were performed at 11 and 22 foot depths at each of 3 sites (Samm Landing, Idylwood Park, and Weowna Park).  Fishes were enumerated during scuba surveys, at each treatment site and a paired control site, twice over one summer (survey 1 and 2).  A generalized linear mixed model (Poisson link) was used to evaluate the effect of the vegetation treatment on sport fish abundance.
+Non-native game fishes predate upon Sockeye Salmon *O. nerka* in Lake Sammamish(?), WA.  Removal of aquatic vegetation is an action that would presumably reduce habitat of non-native gamefish predators, thus reducing their populations and predation impact on Sockeye Salmon.  This study was designed to answer the question **"Did vegetation removal have an effect on abundance of nonnative game fishes?"**.  Vegetation removal treatments were performed at 11 and 22 foot depths at each of 3 sites (Samm Landing, Idylwood Park, and Weowna Park).  Fishes were enumerated during scuba surveys along transects at each treatment site and a paired control site, twice over one summer (survey 1 and 2).
 
-# Resources
+## Analysis (General)
+
+Two analysis approaches were used. The first was a simple one comparing the ratios of game fish abundance between Treatment and Control transects (T:C Ratio), that doesn't account for the repeated measures nature of the study (two surveys conducted at each treatment and control transect), violating assumptions of independence among observations (T:C Ratios between surveys 1 and 2).  The second approached used a generalized linear mixed model (Poisson link) to evaluate the effect of the vegetation treatment on game fish abundance while accounting for the nested structure of the study (control-treatment and survey 1 and 2 nested within site); it also allowed evaluate of other factors (covaraiates) on abundance.
+
+## Results
+The vegetation removal treatment reduced abundance of game fishes (all species) at 11 ft. but not at 22 ft.  At 11 ft., abundance at treatment transects (veg removal) was, on average, 31% of that observed at the control transects.  This is based solely on the simpler analysis of ratios; the more complex modeling approach is included below with slightly different effects at 22 ft.
+
+## Discussion
+
+Of course, the next-level question is did vegetation removal have an effect on total abundance of nonnative game fishes or simply adjust local densities (i.e., push more fish into other parts of the lake)?  As you already pointed out, it was probably the latter.  To really test the effect of vegetation removal on nonnative game fish abundance would require more extensive treatment and monitoring.
+
+Ultimately the question comes down to juvenile salmon and whether or not vegetation removal could have a positive effect on their survival and abundance.  The next question is how many acres of aquatic vegetation removal and tens of nonnative game fish would need to disappear before salmon numbers would respond detectably to the treatment.
+
+## Resources
 Ben Bolker draft chapter on GLMMs: [link](https://ms.mcmaster.ca/~bolker/classes/s4c03/notes/GLMM_Bolker_draft5.pdf)
 
+# The Data
 The data (from D. Kyle, Trout Unlimited) look like this:
 ```{r echo=FALSE}
 DK<-read.csv("DKWA.csv",header=T)
@@ -25,9 +40,114 @@ kable(as.data.frame(DK[,c(5,10,3,9,1,8,12:13,15)]), caption = "Weed removal data
 kable(as.data.frame(DK[,c(16:27)]), caption = "Fish data. Link to Table 1 by rowID (column 1).")
 
 ```
+# The Simpler Approach: Compare Ratios of Abundance at Treatment v. Control (T:C Ratio) at 11 v. 22 ft
+Package the data in a slightly different way, so that Control and Treatment can be viewed side-by-side and the Treatment:Control ratio of abundances (all game species) can be computed:
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+DK2<-DK %>%
+  group_by(Site,DepthCat,SurvCat,Type) %>%
+  summarize(mean=mean(ALL), SD=sd(ALL), n=n())
+```
+```{r message=FALSE, warning=FALSE}
+library(data.table)
+setDT(DK2)
+DK.sum<-dcast(DK2, Site+DepthCat+SurvCat ~ Type, value.var = "mean")
+DK.sum$TCRatio<-round(DK.sum$Treat/DK.sum$Control,3)
+kable(as.data.frame(DK.sum), 
+      caption = "Fish Data: number of fish within Control and Treatment transects (and T:C ratio) by Site, Depth, and Survey.")
+```
+Mean and SD of T:C Ratio across all sites, depths, and surveys.
+```{r}
+mean(DK.sum$TCRatio)
+sd(DK.sum$TCRatio)
+```
+Normality test on T:C Ratio.
+```{r warning=FALSE}
+shapiro.test(DK.sum$TCRatio)
+```
+Test for normality rejected.
 
-# Scale and center the data
-Create scaled and centered data for continuous variables to alleviate model-fit problems ([link](https://rstudio-pubs-static.s3.amazonaws.com/33653_57fc7b8e5d484c909b615d8633c01d51.html))
+2nd test for normality - QQ Plot.
+```{r}
+library("ggpubr")
+ggqqplot(DK.sum$TCRatio, ylab = "Treat:Control ratio",
+         ggtheme = theme_minimal())
+```
+At least one observation shows extreme departure from expectation (an issue).
+
+Remove extreme observation (T:C Ratio ~12, shown by removing 3rd data point in series [-3]).  Outlier driven by passing school of YOY Yellow Perch in treatment plot (but not control), which makes sense (see D. Kyle notes in data sheet).
+
+Test for normality with outlier removed.
+```{r}
+shapiro.test(DK.sum$TCRatio[-3])
+```
+Test for normality rejected again, just barely.
+
+```{r}
+ggqqplot(DK.sum$TCRatio[-3], ylab = "Treat:Control ratio (outlier removed)",
+         ggtheme = theme_minimal())
+```
+Plot also shows another potential outlier, but not extreme.
+
+Retain remaining data, including 2nd potential outlier, as there is not much data to discard.
+
+Mean and SD of T:C Ratio across all sites and surveys
+```{r}
+mean(DK.sum$TCRatio[-3])
+sd(DK.sum$TCRatio[-3])
+```
+One sample t-test on T:C Ratio to determine support for Ho=1 (assess if T:C Ratio different from 1); outlier removed [-3].
+```{r}
+t.test(DK.sum$TCRatio[-3], mu = 1)
+```
+T:C Ratio at all sites, depths, and surveys is not significantly different from 1.
+
+Next, compare T:C Ratio at 11 v. 22 ft.  Means and SDs.
+
+First plot the data:
+```{r}
+boxplot(TCRatio~DepthCat,data=DK.sum[-3,], main="Game Fish Abundance (outlier removed)",
+   xlab="Depth", ylab="Treatment:Control Ratio (abundance)")
+```
+
+```{r}
+mean(DK.sum[DepthCat=="Eleven"]$TCRatio)
+sd(DK.sum[DepthCat=="Eleven"]$TCRatio)
+mean(DK.sum[DepthCat=="TwentyTwo"]$TCRatio[-1])
+sd(DK.sum[DepthCat=="TwentyTwo"]$TCRatio[-1])
+```
+Test for equal variances between T:C Ratio for 11 v. 22 ft depth (to meet assumptions of t-test)
+```{r}
+var.test(TCRatio ~ DepthCat, data = DK.sum[-3,])
+```
+Test for equal variance rejected.  Variances not equal.
+
+t-test between T:C Ratio for 11 v. 22 ft depth, non-equal variances.
+```{r}
+t.test(DK.sum[DepthCat=="Eleven"]$TCRatio, 
+       DK.sum[DepthCat=="TwentyTwo"][-1]$TCRatio, var.equal = FALSE)
+```
+T:C Ratios are NOT significantly different between 11 and 22 ft.
+
+Evaluate whether T:C Ratio for 11 ft transects is significantly different from 1.
+```{r}
+t.test(DK.sum[DepthCat=="Eleven"]$TCRatio, mu = 1)
+```
+T:C Ratio significantly different from 1 (reject Ho=1) at 11 ft.
+
+Evaluate whether T:C Ratio for 22 ft transects is significantly different from 1.
+```{r}
+t.test(DK.sum[DepthCat=="TwentyTwo"]$TCRatio, mu = 1)
+```
+T:C Ratio is NOT significantly different from 1 (reject Ho=1) at 22 ft.
+
+# Results
+The ratio of abundance (all game species) between Treatment and Control plots was on average lower for 11 ft transects (mean=0.31, SD=0.38) than for 22 ft transects (mean=1.21, SD=1.36) where abundance was on average higher at treatment transects (veg removal) than control transects (ie, ratio > 1).  However, given the variability in the T:C Ratio across sites and surveys these averages were not significantly different as revealed by the t-test (t=-1.42, df = 4.51, P = 0.220).  This is in spite of Survey 1 and 2 being treated as independent data when they are, in fact, not (a violation of the statistical test). Given that no significant differences were observed, this pseudo-replication is not of concern.  The T:C Ratios were significantly different from 1 at 11 ft (P=0.007) but not 22 ft (P=0.751) per one-sample t-tests. 
+
+
+# A More Complicated Modeling Approach to Account for Nested Data Structure (Site effects, and repeated surveys) using GLMMs
+## Scale and Center the Data (mean zero, unit variance)
+Create scaled and centered data for continuous variables to alleviate model covergence problems (warning: model nearly unidentifiable) due to different scales of covariate in the model: ([link](https://rstudio-pubs-static.s3.amazonaws.com/33653_57fc7b8e5d484c909b615d8633c01d51.html))
 ```{r}
 DK.s<-DK
 DK.s[,names(DK) %in% c("JulDaySurv","VegRemoved","Visibility")]<-
@@ -46,7 +166,7 @@ kable(corr.tbl, caption = "Pearson correlations (|r|>0.6) among continuous varia
 Screen from global model JulDayTrt and Temp because of high correlation with JulDaySurv. TimeElapsed is correlated with SurveyNum (in binomial sense) and so it is excluded also.
 
 ## Explore Random Effect Structure
-Explore model fit with different variations of random effects based on design while also considering model complexity given sample size (n=24).  Models with no random effect (gm1), site only random effect (gm1.site.reff), site and survey (1 & 2) non-nested random effects (gm2.site.surv.reff), and survey nested within site random effects (gm3.site.surv_reff). It also would fit these models with REML = FALSE, so AIC comparisons may be suspect.
+Explore model fit with different variations of random effects based on experimental design while also considering model complexity given sample size (n=24).  Models with no random effect (gm1), site only random effect (gm1.site.reff), site and survey (1 & 2) non-nested random effects (gm2.site.surv.reff), and survey nested within site random effects (gm3.site.surv_reff). It also would NOT fit these models with REML = FALSE, so AIC comparisons may be suspect.
 ```{r}
 library(lme4)
 gm1<-glm(ALL~JulDaySurv+Type*DepthCat+Visibility, data=DK.s, family=poisson, na.action="na.fail")
@@ -59,14 +179,14 @@ gm3.site.surv_reff<-glmer(ALL~JulDaySurv+Type*DepthCat+Visibility+(1|Site/SurvCa
 ```
 Note that (1|Site/SurvCat) in gm3 results in singularity, i.e., each site and survey combination needs its own intercept (n=6).
 
-Compare models using AIC
+Compare models using AIC:
 ```{r}
 AIC(gm1, gm1.site.reff, gm2.site.surv.reff,gm3.site.surv_reff)#AIC,  suggests random effect needed
 ```
 gm3 has lowest AIC but is singular.  Fall back to non-nested random effects of site and survey, as that model has the next lowest AIC.
 
 ## Global Model
-Fit a global model with Julian Day, Visibility, and the two variables of interest Treatment Type (Control, Impact) and Depth Category (11 v. 22 ft).  Site and Survey (1 or 2) are maintained as random effects (non-nested).
+Fit a global model with Julian Day, Visibility, and the two variables of interest Treatment Type (Control, Impact) and Depth Category (11 v. 22 ft).  Site (Samm Landing, Weowna Park, and Idylwood Park) and Survey (1 or 2) are maintained as random effects (non-nested).
 
 ```{r}
 Global.mod<-glmer(ALL~JulDaySurv+Type*DepthCat+Visibility+(1|Site)+(1|SurvCat),
@@ -90,7 +210,7 @@ Print top models (AICc <4) and model-averaged parameter estimates.
 ```
 Two models are plausible: global model, and a global model but without Julian Day of Survey term.
 
-Compute model-averaged parameter estimates (with and withouth shrinkage):
+Compute model-averaged parameter estimates (with and without shrinkage):
 ```{r}
 avgm<-model.avg(top.mods)
 summary(avgm)
@@ -107,7 +227,7 @@ summary(r.mod)
 ```
 
 ### Results
-The significant interaction between Treatment Type (Control, Treatment) and Depth (11 v. 22 ft) suggests that the effect of Treatment Type differs depending on whether vegetation was removed at 11 v. 22 ft.  At 11 ft., the Depth term and Depth:Treatment Type interaction terms get set to zero. Thus, the parameter estimate of the Treatment Type main effect at 11 ft. is estimated to be -1.56, suggesting that application of the vegetation removal treatment results in a $e^{-1.56} = 0.21$, or a 79% (1 - 0.21 = .79) decrease in abundance of game fish.  At 22 ft., the Depth, Treatment Type, and Treatment Type:Depth interaction estimates suggest that vegetation removal results in a $e^{(-1.56 + -1.67 + 0.39)} = 0.06$, or a 94% (1 - 0.06 = 0.94) decrease in abundance.
+The significant interaction between Treatment Type (Control, Treatment[veg removal]) and Depth (11 v. 22 ft) suggests that the effect of Treatment Type (veg removal) on gamefish abundance differs depending on whether vegetation was removed at 11 v. 22 ft.  At 11 ft., the Depth term and Depth:Treatment Type interaction terms get set to zero. Thus, the parameter estimate of the Treatment Type main effect (other terms cancel to 0) at 11 ft. is estimated to be (0)-1.56 + (1)-1.67 + (0)0.34 = -1.67 on the log(abundance) scale, suggesting that application of the vegetation removal treatment results in a $e^{-1.67} = 0.19$, or an 81% (1 - 0.19 = .81) decrease in abundance of gamefishes.  At 22 ft., the Depth, Treatment Type, and Treatment Type:Depth interaction parameter estimates suggest that vegetation removal results in a $e^{[(1)-1.56 + (1)-1.67 + (1)0.39]} = 0.06$, or a 94% (1 - 0.06 = 0.94) decrease in abundance.
 
 ## Effects Plot with Partial Residuals
 ```{r}
